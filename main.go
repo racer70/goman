@@ -25,6 +25,7 @@ func main() {
 	methodFlag := flag.String("m", "", "GET|POST")
 	appFlag := flag.String("a", "", "application name")
 	pathFlag := flag.String("p", "", "path portion of url")
+	urlFlag := flag.String("u", "", "fully qualified url")
 	authFlag := flag.String("auth", "none", "")
 	fileFlag := flag.String("f", "", "path to JSON payload")
 	contentTypeFlag := flag.String("ct", "application/json", "application/json or application/x-www-form-urlencode")
@@ -49,12 +50,15 @@ func main() {
 		panic(err)
 	}
 
-	result, err := run(*methodFlag, cfg[*envFlag].GetDomain(*appFlag), *appFlag, *pathFlag, *authFlag, *fileFlag, *contentTypeFlag)
+	result, err := run(*methodFlag, cfg[*envFlag].GetDomain(*appFlag), *appFlag, *pathFlag, *authFlag, *fileFlag, *contentTypeFlag, *urlFlag)
 
 	fmt.Println(result)
 
 	if *outputFileFlag != "" {
-		os.WriteFile(*outputFileFlag, []byte(result), 0644)
+		err := os.WriteFile(*outputFileFlag, []byte(result), 0644)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 }
@@ -66,7 +70,8 @@ func run(
 	path string,
 	authType string,
 	payload string,
-	contentType string) (string, error) {
+	contentType string,
+	url string) (string, error) {
 
 	if payload != "" {
 		payloadBytes, e := os.ReadFile(payload)
@@ -77,22 +82,9 @@ func run(
 
 	}
 
-	urlParts := []string{}
-
-	if domain != "" {
-		urlParts = append(urlParts, domain)
-	}
-	if app != "" {
-		urlParts = append(urlParts, app)
-	}
-
-	if path != "" {
-		urlParts = append(urlParts, path)
-	}
-
-	fullUrl := strings.Join(urlParts, "/")
-
 	formattedMethod := cases.Upper(language.English).String(method)
+
+	fullUrl := fullUrl(url, domain, app, path)
 
 	fmt.Printf("\r\n\r\nConstructed Url: %s %s\r\n\r\n", formattedMethod, fullUrl)
 
@@ -116,38 +108,56 @@ func run(
 
 	resp, err := client.Do(req)
 
+	fmt.Printf("\r\n\r\nResponse Status Code: %v\r\n\r\n", resp.StatusCode)
+
 	if err != nil {
 		fmt.Println("Error running request")
 		panic(err)
 	}
 
-	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
-		bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		//TODO:  POST PROCESS
-		var out bytes.Buffer
-
-		err = json.Indent(&out, bodyBytes, "", "  ")
-
-		if err != nil {
-			return "", err
-		} else {
-			return out.String(), nil
-		}
-
-	}
-
-	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal("Error reading response body")
+		panic(err)
 	}
-	fmt.Printf("\r\n\r\nStatus Code: %v\r\n\r\n", resp.StatusCode)
-	fmt.Printf("\r\n\r\nMessage: %v\r\n\r\n", string(respBytes))
-	return "", fmt.Errorf("wtf:  %v", resp)
+
+	fmt.Printf("\r\n\r\nResponse Body: %v\r\n\r\n", string(bodyBytes))
+
+	//TODO:  POST PROCESS
+
+	var out bytes.Buffer
+	err = json.Indent(&out, bodyBytes, "", "  ")
+
+	if err != nil {
+		fmt.Println("Error formatting response body")
+		return string(bodyBytes), err
+	} else {
+		return out.String(), nil
+	}
+
+}
+
+func fullUrl(url string, domain string, app string, path string) string {
+
+	if url == "" {
+		urlParts := []string{}
+
+		if domain != "" {
+			urlParts = append(urlParts, domain)
+		}
+		if app != "" {
+			urlParts = append(urlParts, app)
+		}
+
+		if path != "" {
+			urlParts = append(urlParts, path)
+		}
+
+		return strings.Join(urlParts, "/")
+	} else {
+		return url
+	}
 }
 
 func formatAuth(authType string) string {
